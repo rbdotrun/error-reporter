@@ -1,0 +1,18 @@
+# Test-DB config for the engine's own test suite. PostgreSQL is
+# required — engine migrations use jsonb + uuid types.
+#
+# Local: defaults below connect to localhost as `postgres`.
+# CI: GitHub Actions postgres service overrides via env vars.
+
+default: &default
+  adapter:  postgresql
+  encoding: unicode
+  pool:     <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  host:     <%= ENV.fetch("POSTGRES_HOST") { "localhost" } %>
+  port:     <%= ENV.fetch("POSTGRES_PORT") { 5432 } %>
+  username: <%= ENV.fetch("POSTGRES_USER") { "postgres" } %>
+  password: <%= ENV.fetch("POSTGRES_PASSWORD") { "postgres" } %>
+
+test:
+  <<: *default
+  database: <%= ENV.fetch("POSTGRES_DB") { "rbrun_error_reporter_test" } %>
