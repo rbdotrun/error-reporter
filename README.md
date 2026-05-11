@@ -1,214 +1,223 @@
 # rbrun-error-reporter
 
-In-house error reporter for rbrun and the apps that talk to it.
+Error reporter SDK + mountable collector engine for Rails apps.
 
-Two roles in one package:
+This repo ships **two things** in one gem:
 
-* **Ruby SDK** — drop into any Rails app to capture unhandled
-  exceptions (web requests, background jobs, scripts, scheduled tasks)
-  and forward them to a sink. Local-file logging, local database, or
-  HTTP to a central collector.
-* **Mountable collector engine** — receive HTTP-reported errors from
-  external apps, persist them in `error_reports`, expose them for
-  later browsing / alerting. Mounted in rbrun at `/error_reporter`.
+| Role         | Where it lives                              | Who installs it                   |
+| ------------ | ------------------------------------------- | --------------------------------- |
+| **Engine** (collector) | `app/`, `config/routes.rb`, `db/migrate/` | The operator host (e.g. rbrun) — mounts the engine, persists reports |
+| **Ruby SDK** (reporter) | `lib/rbrun_error_reporter/sdk/ruby/`       | Any client Rails app — see [the SDK README](./lib/rbrun_error_reporter/sdk/ruby/README.md) |
 
-Future SDKs (Python, JavaScript, Go, …) will speak the same
-HTTP wire format. See [`WIRE_PROTOCOL.md`](./WIRE_PROTOCOL.md) for the
-cross-language contract.
+The two communicate over a documented HTTP wire protocol — see
+[`WIRE_PROTOCOL.md`](./WIRE_PROTOCOL.md). Any SDK in any language
+targets the same contract.
+
+This README covers the **operator side**: installing the engine in a
+Rails host so it can receive reports from client apps.
+
+### Client SDKs
+
+For installing a client SDK in your app, jump to the README for your
+language:
+
+- **Ruby** — [`lib/rbrun_error_reporter/sdk/ruby/README.md`](./lib/rbrun_error_reporter/sdk/ruby/README.md)
+- _Python — planned_
+- _JavaScript / TypeScript — planned_
+- _Go — planned_
+- _Other languages_ — implement the
+  [HTTP wire protocol](./WIRE_PROTOCOL.md) directly.
 
 ---
 
-## Onboarding a new client app
+## Installing the collector engine
 
-There are two sides to onboarding: **the operator** (whoever runs the
-collector — currently us, rbrun) issues a credential, **the client app
-team** installs the SDK with that credential.
+The collector is a mountable Rails engine. To host it, a Rails app
+adds the gem, mounts the routes, and runs migrations. There is **no
+generator and no `rake railties:install:migrations` step** — the
+engine auto-appends its migrations into the host's `db:migrate`
+paths.
 
-### Operator side — issue an ingestion credential
+### 1. Add the gem
 
-For now, we (the operator) generate the credential and hand it to the
-client team out of band (1Password, signed message, whatever you'd use
-for any production secret). A self-service UI is a future feature.
+```ruby
+# Gemfile
+gem "rbrun-error-reporter",
+    git:     "https://github.com/rbdotrun/error-reporter.git",
+    branch:  "main",
+    require: "rbrun_error_reporter"
+```
 
-In a Rails console on the collector host:
+Then `bundle install`.
+
+### 2. Mount the engine
+
+```ruby
+# config/routes.rb
+Rails.application.routes.draw do
+  # … your routes …
+
+  mount RbRunErrorReporter::Engine => "/error_reporter"
+end
+```
+
+This adds one route: `POST /error_reporter/errors`. That's where
+client apps' HttpSink POSTs land.
+
+### 3. Run migrations
+
+```bash
+bin/rails db:migrate
+```
+
+Two tables get created:
+
+* **`error_reports`** — captured errors. UUID PK, JSONB payload,
+  `fingerprint` (for grouping), `source_app`, `user_id`,
+  `workspace_id` (opaque strings — no FK constraints, so the same
+  table holds reports from any number of source apps with any kind of
+  identifier shape).
+* **`ingestion_credentials`** — bearer tokens that authorize POSTs to
+  the collector. Plaintext tokens are **never stored**; only SHA256
+  digests + the last four characters (for display).
+
+### 4. Configure (optional but recommended)
+
+Create `config/initializers/error_reporter.rb`:
+
+```ruby
+RbRunErrorReporter.configure do |c|
+  c.environment = Rails.env
+  c.release     = ENV["GIT_SHA"]
+  c.enabled     = !Rails.env.test?
+
+  # The operator host typically ALSO uses the SDK to report its own
+  # errors. Writing directly to error_reports is faster than POSTing
+  # to itself over HTTP.
+  c.sink =
+    if Rails.env.test?
+      RbRunErrorReporter::Sdk::Ruby::Sinks::LogSink.new
+    else
+      RbRunErrorReporter::Sdk::Ruby::Sinks::DatabaseSink.new
+    end
+
+  # Optional — last-chance redaction. Return nil to drop a report.
+  # c.before_send = ->(payload) { payload }
+
+  # Optional — add app-specific exceptions to ignore. Defaults already
+  # include RoutingError, RecordNotFound, InvalidAuthenticityToken.
+  # c.ignored_exceptions += %w[YourApp::ExpectedError]
+end
+```
+
+### 5. Wire up retention (optional but recommended)
+
+The `error_reports` table will grow forever without a retention
+policy. Add this to `config/recurring.yml`:
+
+```yaml
+production:
+  delete_old_error_reports:
+    class: "RbRunErrorReporter::DeleteOldErrorReportsJob"
+    args:  [{ "older_than_days": 30 }]
+    schedule: every day at 3am
+```
+
+Adjust `older_than_days` to taste. The job uses `delete_all` so it
+runs in O(deleted) without instantiating models.
+
+---
+
+## Issuing ingestion credentials
+
+For each client app that should be allowed to POST errors, the
+operator issues a bearer token. Currently this happens in the Rails
+console (a self-service UI is a planned follow-up).
 
 ```ruby
 result = RbRunErrorReporter::IngestionCredential.issue!(name: "appA-prod")
-# => { credential: #<…>, token: "rbreport_v1_…" }
-
 puts result[:token]
-# => "rbreport_v1_L4KEGBA_T0hdDj2ZfNAhKxh…"   ← give THIS to the client
+# => "rbreport_v1_L4KEGBA_T0hdDj2ZfNAhKxh…"   ← give this to the client team
 ```
 
-Important:
+**The plaintext token is shown exactly once** — we store only its
+SHA256 digest. If it's lost before being handed off, revoke and
+re-issue.
 
-* The plaintext token is returned **once**. We store only its SHA256
-  digest plus the last four characters (for display). If the operator
-  loses it before handing it over, revoke and re-issue.
-* `name` is the human label that shows up as the default `source_app`
-  on every error this credential reports. Use the deployment as the
-  name: `appA-prod`, `appA-staging`, `worker-prod`, …. One credential
-  per environment per app keeps blast radius small at rotation time.
-* Revoke when an app is decommissioned or a key is suspected leaked:
+Conventions:
 
-  ```ruby
-  RbRunErrorReporter::IngestionCredential.find_by(name: "appA-prod").revoke!
-  ```
+* **One credential per environment per app**, e.g. `appA-prod`,
+  `appA-staging`, `worker-prod`. Limits blast radius on rotation.
+* **`name` is the default `source_app`** on every report this
+  credential authorizes — so it shows up in `error_reports.source_app`
+  unless the client overrides it in the payload.
+* **Hand off out of band** — 1Password, signed message, whatever
+  you'd use for any production secret.
 
-  Authentication immediately rejects any token presenting that
-  credential's digest. The row is kept for audit.
+Revoking:
 
-### Client side — install the SDK in a Rails app
-
-The client app needs three things: the gem in its `Gemfile`, an
-initializer that points at the collector, and (for jobs / requests)
-nothing else — capture happens automatically.
-
-1. **Gemfile**
-
-   ```ruby
-   # Gemfile
-   gem "rbrun-error-reporter",
-       git:     "https://github.com/rbdotrun/error-reporter.git",
-       branch:  "main",
-       require: "rbrun_error_reporter"
-   ```
-
-   To pin a release once we start tagging them:
-
-   ```ruby
-   gem "rbrun-error-reporter",
-       git:     "https://github.com/rbdotrun/error-reporter.git",
-       tag:     "v0.1.0",
-       require: "rbrun_error_reporter"
-   ```
-
-   Then `bundle install`.
-
-2. **Configure the sink** at `config/initializers/error_reporter.rb`:
-
-   ```ruby
-   RbRunErrorReporter.configure do |c|
-     c.environment = Rails.env
-     c.release     = ENV["GIT_SHA"]
-     c.enabled     = !Rails.env.test?
-
-     # Point at the rbrun collector. Endpoint is configurable so we
-     # can move the collector later without touching client apps.
-     c.sink = RbRunErrorReporter::Sdk::Ruby::Sinks::HttpSink.new(
-       endpoint: ENV.fetch("ERROR_REPORTER_ENDPOINT"),    # e.g. "https://rbrun.example/error_reporter/errors"
-       token:    ENV.fetch("ERROR_REPORTER_TOKEN")        # the rbreport_v1_… string from the operator
-     )
-
-     # Optional — drop a payload before send, or scrub extras:
-     # c.before_send = ->(payload) { payload }
-     #
-     # Optional — add app-specific exceptions to ignore (default list
-     # already excludes RoutingError, RecordNotFound, InvalidAuthenticityToken):
-     # c.ignored_exceptions += %w[MyApp::ExpectedNoiseError]
-   end
-   ```
-
-3. **That's it.** The engine wires:
-
-   * Rack middleware → catches unhandled web request errors
-   * `ActiveJob::Base` perform hook → catches every failed job
-   * `Rails.error.subscribe` → catches `rescue_from`, ActionCable,
-     ActiveRecord async query errors
-   * `at_exit` → catches Rake / `bin/rails runner` / script crashes
-
-   For manual capture in `rescue` blocks:
-
-   ```ruby
-   begin
-     risky_thing
-   rescue => e
-     RbRunErrorReporter.capture(e, my_extra: "context")
-     # decide whether to swallow or re-raise
-   end
-   ```
-
-4. **Carry user/workspace context into jobs** — _optional but
-   recommended._ The SDK's `PayloadBuilder` auto-attaches
-   `Current.user` and `Current.workspace` to every report. For web
-   requests these are usually set by the auth layer already; for
-   background jobs, add this to your `ApplicationJob`:
-
-   ```ruby
-   class ApplicationJob < ActiveJob::Base
-     before_perform do |job|
-       job.arguments.each do |arg|
-         case arg
-         when ::User      then ::Current.user      = arg
-         when ::Workspace then ::Current.workspace = arg
-         end
-       end
-     end
-   end
-   ```
-
-### Client side — non-Ruby app
-
-The SDK is currently Ruby-only. Other-language clients POST directly
-to the collector following the wire protocol — see
-[`WIRE_PROTOCOL.md`](./WIRE_PROTOCOL.md) for the full schema,
-headers, and response codes. Minimum viable payload:
-
-```
-POST <collector>/error_reporter/errors
-Authorization: Bearer rbreport_v1_…
-Content-Type: application/json
-
-{
-  "schema_version": 1,
-  "exception_class": "MyApp.SomeError",
-  "message":         "thing exploded",
-  "occurred_at":     "2026-05-11T12:34:56.789Z",
-  "environment":     "production",
-  "source":          "manual"
-}
+```ruby
+RbRunErrorReporter::IngestionCredential.find_by(name: "appA-prod").revoke!
 ```
 
-→ `202 Accepted { "status": "accepted", "id": "<uuid>" }`
+The row is kept for audit. Authentication immediately rejects any
+token presenting that credential's digest.
 
 ---
 
-## Verifying it works
+## Verifying the collector is up
 
-After the client app boots with the SDK configured:
+After the engine is mounted and migrations have run:
 
 ```bash
-bin/rails runner 'raise "smoke test"'
+# Issue a test credential
+bin/rails runner '
+  r = RbRunErrorReporter::IngestionCredential.issue!(name: "smoke-test")
+  puts "TOKEN=#{r[:token]}"
+'
 ```
 
-then on the collector (rbrun) side:
+Then POST a synthetic error from anywhere with access:
+
+```bash
+curl -X POST https://<host>/error_reporter/errors \
+  -H "Authorization: Bearer rbreport_v1_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schema_version": 1,
+    "exception_class": "Smoke::TestError",
+    "message":         "hello from curl",
+    "occurred_at":     "2026-05-11T12:00:00.000Z",
+    "environment":     "production",
+    "source":          "manual"
+  }'
+
+# → 202 Accepted {"status":"accepted","id":"..."}
+```
+
+Confirm it landed:
 
 ```bash
 bin/rails runner '
   r = RbRunErrorReporter::ErrorReport.recent.first
   puts r ? "#{r.source_app} #{r.exception_class}: #{r.message}" : "(no rows)"
 '
+# → smoke-test Smoke::TestError: hello from curl
 ```
 
-You should see `appA-prod RuntimeError: smoke test` (or similar). If
-you don't:
+Then clean up the test credential:
 
-* Is `RbRunErrorReporter.configuration.enabled` true on the client?
-  (Default is `!Rails.env.test?` — make sure you're not running in
-  test env.)
-* Is the bearer token correct and not revoked? Tail the collector
-  logs — invalid bearer logs `401 unauthorized`.
-* Is the endpoint reachable from the client? An HttpSink network
-  error logs a single line at warn level and drops the report;
-  it never raises or blocks the request thread.
+```ruby
+RbRunErrorReporter::IngestionCredential.find_by(name: "smoke-test").destroy
+```
 
 ---
 
-## Architecture (1-screen summary)
+## Architecture
 
 ```
-   Client app (any language)                       Collector (rbrun)
-   ─────────────────────────                       ──────────────────
+   Client app (any language)                       Collector (operator host)
+   ─────────────────────────                       ─────────────────────────
    capture surface                                 POST /error_reporter/errors
      │                                              ↓ bearer-token auth
      ↓                                              ↓ IngestionCredential lookup
@@ -225,28 +234,30 @@ you don't:
 ```
 
 See [`WIRE_PROTOCOL.md`](./WIRE_PROTOCOL.md) for the wire contract,
-and the per-file comments in `lib/rbrun_error_reporter/sdk/ruby/`
+and per-file comments in `lib/rbrun_error_reporter/sdk/ruby/`
 for the implementation tour.
 
 ---
 
 ## Development
 
-The gem's test suite currently lives in the **rbrun host
-repository** at `test/rbrun_error_reporter/`,
+The gem's test suite currently lives in the **rbrun host repository**
+at `test/rbrun_error_reporter/`,
 `test/{models,controllers,jobs}/rb_run_error_reporter/`, and
 `test/integration/error_reporter_*.rb`. Run via `dip test` from
 rbrun. These tests exercise the gem against a real Rails app +
 PostgreSQL — closer to the real deployment than a dummy app would
 be.
 
-An in-repo suite (combustion-based or with a `test/dummy/` Rails
-app) is on the roadmap so this gem can be tested in isolation — see
-below. Until then, changes here should be developed against a local
-checkout (`gem "rbrun-error-reporter", path: "../error-reporter"` in
-rbrun's Gemfile), validated with `dip test` in rbrun, and pushed to
-this repo's `main` so rbrun's `Gemfile.lock` can pull the new SHA
-via `bundle update rbrun-error-reporter`.
+An in-repo suite (combustion-based or with a `test/dummy/` Rails app)
+is on the roadmap. Until then, changes here should be developed
+against a local checkout
+(`gem "rbrun-error-reporter", path: "../error-reporter"` in rbrun's
+Gemfile), validated with `dip test` in rbrun, and pushed to this
+repo's `main` so rbrun's `Gemfile.lock` can pull the new SHA via
+`bundle update rbrun-error-reporter`.
+
+---
 
 ## Roadmap
 
