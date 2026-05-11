@@ -23,12 +23,20 @@ module RbRunErrorReporter
     #
     # Append the engine's `db/migrate` paths into the host's migration paths
     # so `bin/rails db:migrate` picks them up without a copy step.
-    # Skip when the host IS the engine (running engine tests in isolation).
+    #
+    # Skip when the host IS the engine itself (engine running its own
+    # isolated tests). Comparison is explicit string equality — the
+    # Rails Engines guide's canonical `app.root.to_s.match?(root.to_s)`
+    # pattern uses `match?` as a REGEX match, which falsely matches any
+    # host whose root is INSIDE the engine's directory tree (e.g.
+    # `examples/host/` under `/gem`). That silently drops the engine's
+    # migrations and the host crashes on first AR query against
+    # `error_reports` or `ingestion_credentials`.
     initializer :append_migrations do |app|
-      unless app.root.to_s.match?(root.to_s)
-        config.paths["db/migrate"].expanded.each do |expanded_path|
-          app.config.paths["db/migrate"] << expanded_path
-        end
+      next if app.root.to_s == root.to_s
+
+      config.paths["db/migrate"].expanded.each do |expanded_path|
+        app.config.paths["db/migrate"] << expanded_path
       end
     end
 

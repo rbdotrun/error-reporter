@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Container entrypoint: ensure DB exists, run migrations (engine's
+# migrations are auto-appended to the host's paths via
+# `initializer :append_migrations`), seed an IngestionCredential
+# matching $ERROR_REPORTER_TOKEN, then exec the given command.
+# Idempotent — every step is safe to re-run.
+set -e
+
+if [ "${1#bin/rails}" != "$1" ] || [ "$1" = "bundle" ]; then
+  echo "[entrypoint] db:create + db:migrate + db:seed"
+  # `db:create` short-circuits if DB exists. `db:migrate` runs the
+  # engine's migrations (which are picked up automatically). We
+  # deliberately do NOT use `db:prepare` — it tries `db:schema:load`
+  # first, which loads a (nonexistent) `db/schema.rb`, leaving the
+  # engine tables uncreated and the seed crashing on a missing table.
+  bin/rails db:create 2>/dev/null || true
+  bin/rails db:migrate
+  bin/rails db:seed
+fi
+
+# Remove any pid file from a previous run so puma can start.
+rm -f /gem/examples/host/tmp/pids/server.pid
+
+exec "$@"

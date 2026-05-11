@@ -1,0 +1,79 @@
+# End-to-end demo: postgres + host (collector) + client (reporter).
+#
+# `dip up` from this directory boots all three. The host's entrypoint
+# seeds an IngestionCredential from $ERROR_REPORTER_TOKEN; the client's
+# HttpSink reads the same token from env. No manual credential dance.
+#
+# Build contexts point UP the directory tree at the gem repo root
+# because both example apps consume the gem via `path: "../.."` and
+# Bundler needs the gem source available inside the build context.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  host:
+    build:
+      context: ..
+      dockerfile: examples/host/Dockerfile
+    image: rbrun-error-reporter-examples-host
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      RAILS_ENV:            development
+      DATABASE_URL:         postgres://postgres:postgres@db:5432/host_development
+      ERROR_REPORTER_TOKEN: ${ERROR_REPORTER_TOKEN:?set ERROR_REPORTER_TOKEN in .env}
+    ports:
+      # External 3010 → internal 3000. Internal stays 3000 so the
+      # client's `http://host:3000/...` endpoint still works across the
+      # docker network. Bumped externally to avoid colliding with the
+      # standard Rails dev port a developer is likely already using.
+      - "3010:3000"
+    volumes:
+      # Bind-mount the gem source so changes to the gem are picked up
+      # without a rebuild. Gem path inside the container is /gem.
+      - ..:/gem
+      # Don't let the bind-mount nuke /gem/examples/host/tmp inside the
+      # container (it has runtime state we want fresh per-boot).
+      - host-tmp:/gem/examples/host/tmp
+
+  client:
+    build:
+      context: ..
+      dockerfile: examples/client/Dockerfile
+    image: rbrun-error-reporter-examples-client
+    depends_on:
+      - host
+    environment:
+      RAILS_ENV:               development
+      ERROR_REPORTER_ENDPOINT: http://host:3000/error_reporter/errors
+      ERROR_REPORTER_TOKEN:    ${ERROR_REPORTER_TOKEN:?set ERROR_REPORTER_TOKEN in .env}
+      # Bypass any host-injected HTTP proxy (OrbStack, corporate
+      # proxies, etc.) for the docker-network service hostnames.
+      # Without this, Net::HTTP routes the SDK's POSTs through the
+      # proxy, which can't resolve the inter-container hostname and
+      # returns 502.
+      NO_PROXY:                "host,db,client,localhost,127.0.0.1"
+      no_proxy:                "host,db,client,localhost,127.0.0.1"
+    ports:
+      # External 4010 → internal 4000.
+      - "4010:4000"
+    volumes:
+      - ..:/gem
+      - client-tmp:/gem/examples/client/tmp
+
+volumes:
+  postgres-data:
+  host-tmp:
+  client-tmp:

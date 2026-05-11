@@ -1,0 +1,1 @@
+Rails.application.config.secret_key_base = "example_client_secret_key_base_demo_only_do_not_use_in_production_abcdef"

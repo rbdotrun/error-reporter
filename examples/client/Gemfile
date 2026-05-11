@@ -1,0 +1,11 @@
+source "https://rubygems.org"
+
+ruby ">= 3.4"
+
+gem "rails", "~> 8.1"
+gem "puma"
+
+# The client doesn't need a database — error reports are POSTed to the
+# host. Skip pg / sqlite entirely.
+
+gem "rbrun-error-reporter", path: "../..", require: "rbrun_error_reporter"

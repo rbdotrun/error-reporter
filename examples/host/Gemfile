@@ -1,0 +1,11 @@
+source "https://rubygems.org"
+
+ruby ">= 3.4"
+
+gem "rails", "~> 8.1"
+gem "puma"
+gem "pg", "~> 1.5"
+
+# Path back to the gem this example demonstrates. Changes to the gem
+# source are picked up live via the bind-mount in docker-compose.yml.
+gem "rbrun-error-reporter", path: "../..", require: "rbrun_error_reporter"

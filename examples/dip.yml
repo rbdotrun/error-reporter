@@ -1,0 +1,66 @@
+version: "8.0"
+
+compose:
+  files:
+    - docker-compose.yml
+  project_name: rbrun-error-reporter-examples
+
+interaction:
+  # ---- one-command lifecycle -------------------------------------------
+  up:
+    description: Boot db + host (collector) + client (reporter). Visit http://localhost:4000/boom.
+    compose:
+      method: up
+
+  down:
+    description: Stop and remove everything
+    compose:
+      method: down
+
+  logs:
+    description: Tail all container logs (pass `-f` to follow)
+    compose:
+      method: logs
+
+  # ---- host (collector) shells / rails commands ------------------------
+  host:
+    description: Bash shell in the host (collector) container
+    service: host
+    command: bash
+
+  host-console:
+    description: Rails console on the host (collector)
+    service: host
+    command: bin/rails console
+
+  host-rails:
+    description: Run an arbitrary Rails command on the host (collector)
+    service: host
+    command: bin/rails
+
+  # ---- client (reporter) shells / rails commands -----------------------
+  client:
+    description: Bash shell in the client (reporter) container
+    service: client
+    command: bash
+
+  client-console:
+    description: Rails console on the client (reporter)
+    service: client
+    command: bin/rails console
+
+  # ---- demo helpers ----------------------------------------------------
+  boom:
+    description: Curl the client's /boom endpoint — triggers a captured exception
+    service: client
+    command: bash -lc "curl -sS -o /dev/null -w 'client returned %{http_code}\n' http://localhost:4000/boom"
+
+  show-reports:
+    description: Print the host's most recent ErrorReport rows
+    service: host
+    command: bin/rails runner bin/show-reports.rb
+
+provision:
+  - cp -n .env.example .env || true
+  - dip compose build
+  - dip compose up -d
