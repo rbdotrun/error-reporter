@@ -10,7 +10,7 @@ class RbRunErrorReporter::Sdk::Ruby::Sinks::DatabaseSinkTest < ActiveSupport::Te
       schema_version:  1,
       exception_class: "RuntimeError",
       message:         "boom 42",
-      backtrace:       ["/app/foo.rb:1:in `bar'", "/app/baz.rb:2:in `qux'"],
+      backtrace:       [ "/app/foo.rb:1:in `bar'", "/app/baz.rb:2:in `qux'" ],
       environment:     "test",
       release:         "abc",
       source:          "test",

@@ -10,7 +10,7 @@ module RbRunErrorReporter
   # Wire format is documented in WIRE_PROTOCOL.md — this controller is
   # the reference implementation.
   class ErrorsController < ApplicationController
-    SUPPORTED_SCHEMA_VERSIONS = [1].freeze
+    SUPPORTED_SCHEMA_VERSIONS = [ 1 ].freeze
 
     # The size cap is enforced in two places: the request layer (here,
     # reads Content-Length) and as a defensive check on the materialized

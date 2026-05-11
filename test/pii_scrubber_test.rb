@@ -27,7 +27,7 @@ class RbRunErrorReporter::Sdk::Ruby::PiiScrubberTest < ActiveSupport::TestCase
   end
 
   test "walks arrays" do
-    out = @scrubber.scrub([{ token: "a" }, { token: "b" }])
+    out = @scrubber.scrub([ { token: "a" }, { token: "b" } ])
     assert_equal "[FILTERED]", out[0][:token]
     assert_equal "[FILTERED]", out[1][:token]
   end

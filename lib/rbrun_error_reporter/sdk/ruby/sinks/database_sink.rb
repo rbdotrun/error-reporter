@@ -52,7 +52,7 @@ module RbRunErrorReporter
               normalized_message = payload[:message].to_s.gsub(/\d+/, "N")
               top_frames = Array(payload[:backtrace]).first(3).join("|")
               Digest::SHA1.hexdigest(
-                [payload[:exception_class], normalized_message, top_frames].join("||")
+                [ payload[:exception_class], normalized_message, top_frames ].join("||")
               )
             end
 

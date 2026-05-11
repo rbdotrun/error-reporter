@@ -1,0 +1,13 @@
+# Same rubocop config as the rbrun host — Rails Omakase style.
+inherit_gem:
+  rubocop-rails-omakase: rubocop.yml
+
+AllCops:
+  TargetRubyVersion: 3.4
+  NewCops: disable
+
+  Exclude:
+    # Generated / vendored.
+    - vendor/**/*
+    - test/dummy/db/schema.rb
+    - test/dummy/bin/**/*

@@ -49,7 +49,7 @@ module RbRunErrorReporter
               end
             end
           rescue StandardError
-            ["[unserializable]"]
+            [ "[unserializable]" ]
           end
       end
     end

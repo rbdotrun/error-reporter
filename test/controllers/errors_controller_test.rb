@@ -23,7 +23,7 @@ class RbRunErrorReporter::ErrorsControllerTest < ActionDispatch::IntegrationTest
       schema_version:  1,
       exception_class: "RuntimeError",
       message:         "boom",
-      backtrace:       ["/app/foo.rb:1"],
+      backtrace:       [ "/app/foo.rb:1" ],
       occurred_at:     Time.now.utc.iso8601,
       environment:     "production",
       release:         "abc1234",

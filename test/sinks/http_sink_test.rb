@@ -95,7 +95,7 @@ class RbRunErrorReporter::Sdk::Ruby::Sinks::HttpSinkTest < ActiveSupport::TestCa
   end
 
   test "401/403/5xx are logged and dropped, no raise" do
-    [401, 500].each do |code|
+    [ 401, 500 ].each do |code|
       WebMock.reset!
       WebMock.stub_request(:post, "https://collector.example/errors").to_return(status: code)
       sink = Sink.new(endpoint: "https://collector.example/errors", token: "t", worker: sync_worker)

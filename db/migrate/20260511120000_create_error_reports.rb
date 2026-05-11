@@ -31,7 +31,7 @@ class CreateErrorReports < ActiveRecord::Migration[8.1]
     add_index :error_reports, :fingerprint
     add_index :error_reports, :exception_class
     add_index :error_reports, :occurred_at
-    add_index :error_reports, [:workspace_id, :occurred_at]
-    add_index :error_reports, [:source_app, :occurred_at]
+    add_index :error_reports, [ :workspace_id, :occurred_at ]
+    add_index :error_reports, [ :source_app, :occurred_at ]
   end
 end

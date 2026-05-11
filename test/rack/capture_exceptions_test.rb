@@ -22,7 +22,7 @@ class RbRunErrorReporter::Sdk::Ruby::Rack::CaptureExceptionsTest < ActiveSupport
   test "reports an exception stashed in env (rescued path)" do
     inner = ->(env) {
       env[InterceptMw::ENV_KEY] = RuntimeError.new("stashed")
-      [500, {}, ["err"]]
+      [ 500, {}, [ "err" ] ]
     }
     mw = CaptureMw.new(inner)
     mw.call(::Rack::MockRequest.env_for("/"))
@@ -34,7 +34,7 @@ class RbRunErrorReporter::Sdk::Ruby::Rack::CaptureExceptionsTest < ActiveSupport
   test "reports an exception read from action_dispatch.exception" do
     inner = ->(env) {
       env["action_dispatch.exception"] = ArgumentError.new("dispatched")
-      [500, {}, ["err"]]
+      [ 500, {}, [ "err" ] ]
     }
     mw = CaptureMw.new(inner)
     mw.call(::Rack::MockRequest.env_for("/"))
@@ -50,7 +50,7 @@ class RbRunErrorReporter::Sdk::Ruby::Rack::CaptureExceptionsTest < ActiveSupport
   end
 
   test "does nothing when env has no exception and inner returns normally" do
-    mw = CaptureMw.new(->(_env) { [200, {}, ["ok"]] })
+    mw = CaptureMw.new(->(_env) { [ 200, {}, [ "ok" ] ] })
     mw.call(::Rack::MockRequest.env_for("/"))
     assert_empty @sink.deliveries
   end

@@ -4,11 +4,11 @@ class RbRunErrorReporter::Sdk::Ruby::Rack::RescuedExceptionInterceptorTest < Act
   Mw = RbRunErrorReporter::Sdk::Ruby::Rack::RescuedExceptionInterceptor
 
   test "passes through normal responses untouched" do
-    app = ->(_env) { [200, {}, ["ok"]] }
+    app = ->(_env) { [ 200, {}, [ "ok" ] ] }
     mw = Mw.new(app)
     status, _, body = mw.call(::Rack::MockRequest.env_for("/"))
     assert_equal 200, status
-    assert_equal ["ok"], body
+    assert_equal [ "ok" ], body
   end
 
   test "stashes the raw exception in env and re-raises" do

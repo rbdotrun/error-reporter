@@ -31,7 +31,7 @@ class RbRunErrorReporter::Sdk::Ruby::ConfigurationTest < ActiveSupport::TestCase
   end
 
   test "ignore? respects ignored_paths" do
-    @config.ignored_paths = [%r{\A/skip/me}]
+    @config.ignored_paths = [ %r{\A/skip/me} ]
     assert @config.ignore?(RuntimeError.new, path: "/skip/me/here")
     refute @config.ignore?(RuntimeError.new, path: "/keep")
   end

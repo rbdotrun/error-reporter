@@ -33,6 +33,6 @@ class RbRunErrorReporter::Sdk::Ruby::ActiveJobExtensionTest < ActiveSupport::Tes
   test "captures the job arguments (scalars passed through)" do
     assert_raises(RuntimeError) { BoomJob.perform_now("scalar_arg") }
     payload = @sink.deliveries.first
-    assert_equal ["scalar_arg"], payload[:extra][:job][:arguments]
+    assert_equal [ "scalar_arg" ], payload[:extra][:job][:arguments]
   end
 end

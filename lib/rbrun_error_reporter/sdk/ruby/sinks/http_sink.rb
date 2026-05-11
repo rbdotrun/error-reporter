@@ -139,9 +139,9 @@ module RbRunErrorReporter
             def serialize_body(payload)
               json = JSON.generate(payload)
               if json.bytesize >= GZIP_THRESHOLD_BYTES
-                [Zlib.gzip(json), "gzip"]
+                [ Zlib.gzip(json), "gzip" ]
               else
-                [json, nil]
+                [ json, nil ]
               end
             end
 

@@ -22,7 +22,7 @@ class RbRunErrorReporter::ErrorReportTest < ActiveSupport::TestCase
   test "recent scope orders by occurred_at DESC" do
     older = make_report(occurred_at: 2.hours.ago)
     newer = make_report(occurred_at: 1.hour.ago)
-    assert_equal [newer, older], RbRunErrorReporter::ErrorReport.recent.to_a
+    assert_equal [ newer, older ], RbRunErrorReporter::ErrorReport.recent.to_a
   end
 
   test "for_workspace filters by workspace_id" do
@@ -30,7 +30,7 @@ class RbRunErrorReporter::ErrorReportTest < ActiveSupport::TestCase
     ws_b = SecureRandom.uuid
     a = make_report(workspace_id: ws_a)
     _b = make_report(workspace_id: ws_b)
-    assert_equal [a], RbRunErrorReporter::ErrorReport.for_workspace(ws_a).to_a
+    assert_equal [ a ], RbRunErrorReporter::ErrorReport.for_workspace(ws_a).to_a
   end
 
   test "purge_older_than deletes rows older than the cutoff" do
